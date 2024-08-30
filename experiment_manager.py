@@ -1,3 +1,4 @@
+
 import logging
 import random
 from typing import List, Dict
@@ -35,15 +36,13 @@ class ExperimentManager:
         self._initialize_labels_and_logit_processor(labels)
 
     def _initialize_labels_and_logit_processor(self, labels: List[str]) -> None:
-        _logger.info(f"Provided labels: {labels}")
+        _logger.info(f"Initializing labels and logit processor with provided labels: {labels}")
         labels_tokens = encode_labels(self.tokenizer, labels)
         labels_tokens_array = self.minimize_labels_tokens(labels_tokens)
         _logger.info(f"Provided labels average n_tokens: {np.round(np.mean([len(lt) for lt in labels_tokens]), 3)}")
-        # we fix the labels accordingly in the test set:
         shorten_label_tokens = [t[t != self.tokenizer.eos_token_id].tolist() for t in labels_tokens_array]
         _logger.info(
-            f"shortened labels average n_tokens: {np.round(np.mean([len(lt) for lt in shorten_label_tokens]), 3)}")
-        # Moving the test set label tokens to their shorter version:
+            f"Shortened labels average n_tokens: {np.round(np.mean([len(lt) for lt in shorten_label_tokens]), 3)}")
         map_labels = {old_label: self.tokenizer.decode(t).lstrip() for old_label, t in
                       zip(labels, shorten_label_tokens)}
         self.test_df[LABEL_TOKENS] = self.test_df[LABEL_TOKENS].map(map_labels)
@@ -57,9 +56,6 @@ class ExperimentManager:
         self.possible_labels = set(map_labels.values())
 
     def minimize_labels_tokens(self, labels_tokens: List[List[int]]) -> npt.NDArray[int]:
-        """
-         Minimize the number of tokens per label to be the shortest possible unique one.
-        """
         pad = len(max(labels_tokens, key=len))
         labels_tokens_array = np.array([i + [self.tokenizer.eos_token_id] * (pad - len(i)) for i in labels_tokens])
         for i, tokens in enumerate(labels_tokens):
@@ -71,19 +67,15 @@ class ExperimentManager:
                     break
         return labels_tokens_array
 
-    def pad_contained_labels_with_stop_seq(self, labels_tokens: List, labels_tokens_array: npt.NDArray[int]) \
+    def pad_contained_labels_with_stop_seq(self, labels_tokens: List, labels_tokens_array: npt.NDArray[int]) 
             -> npt.NDArray[int]:
-        """
-        In case we have two labels, where one label contains the other label (for example: "A" and "A B") we need
-        to allow the restrictive decoding to produce the output "A". We support it by adding "\n" to the shorter label.
-        """
         stop_seq_token_id = encode_stop_seq(self.tokenizer, STOP_SEQUENCE)
         for i, tokens in enumerate(labels_tokens):
             labels_with_shared_beginnings = np.sum(
                 np.all(labels_tokens_array[:, :len(tokens)] == np.array(tokens), axis=1))
             if labels_with_shared_beginnings > 1:
-                _logger.info(f"label{self.tokenizer.decode(tokens)} is the beginning of one of the other labels,"
-                             f"adding stop sequence to its end")
+                _logger.info(f"Label '{self.tokenizer.decode(tokens)}' is the beginning of one of the other labels, "
+                             f"adding stop sequence token to its end.")
                 labels_tokens_array[i, len(tokens)] = stop_seq_token_id
         return labels_tokens_array
 
@@ -105,7 +97,7 @@ class ExperimentManager:
         return predicted_labels
 
     def predict_label(self, task_text: str, cache: Dict) -> str:
-        assert task_text == task_text.rstrip(), "prompt ends with a space!"
+        assert task_text == task_text.rstrip(), "Prompt ends with a space!"
         res = self.model.pcw_generate(task_text=task_text,
                                       contexts_cache=cache,
                                       restrictive_logit_preprocessor=self.logit_processor,
@@ -117,14 +109,14 @@ class ExperimentManager:
     def calc_acc(self, predicted_labels: List) -> float:
         predicted_labels = pd.Series(predicted_labels, index=self.test_df.index)
         acc = np.mean(predicted_labels == self.test_df[LABEL_TOKENS])
-        _logger.info(f"accuracy = {np.round(acc, 3)}")
+        _logger.info(f"Calculated accuracy = {np.round(acc, 3)}")
         return acc
 
     def run_experiment_across_shots(self, n_shots_to_test: List[int], n_runs: int,
                                     too_long_patience: float = 0.2):
         accuracies = np.zeros((len(n_shots_to_test), n_runs))
         for i, n_shots in enumerate(tqdm(n_shots_to_test)):
-            _logger.info(f"starting with n = {n_shots}")
+            _logger.info(f"Starting experiment with n = {n_shots}")
             self._set_random_seed(self.base_random_seed + n_shots)
             j = 0
             n_errors = 0
@@ -139,7 +131,7 @@ class ExperimentManager:
                         + self.max_n_tokens) > self.model.context_window_size:
                     _logger.warning("Drawn training shots were too long, trying again")
                     n_errors += 1
-                    assert n_errors <= too_long_patience * n_runs, "too many long inputs were drawn!"
+                    assert n_errors <= too_long_patience * n_runs, "Too many long inputs were drawn!"
                     continue
                 accuracies[i, j] = self.get_few_shots_acc(windows_few_shots)
                 j += 1
@@ -147,7 +139,7 @@ class ExperimentManager:
 
     def sample_n_shots(self, n_shots: int) -> npt.NDArray[int]:
         few_shots_df = self.train_df.sample(n_shots)
-        assert few_shots_df.index.is_unique, "few shots samples were not unique!"
+        assert few_shots_df.index.is_unique, "Few shots samples were not unique!"
         window_size = self.n_shots_per_window or n_shots
         n_windows = int(len(few_shots_df) / window_size)
         if not self.n_shots_per_window or n_windows == 1:
@@ -163,7 +155,6 @@ class ExperimentManager:
             order = np.argsort((np.sum(sizes[:i, :], axis=0)))
             sizes[i, :] = sizes[i, order]
             indexes[i, :] = indexes[i, order]
-        # shuffle the order in each window:
         for i in range(n_windows):
             np.random.shuffle(indexes[:, i])
         indexes = indexes.T.flatten()
@@ -175,3 +166,4 @@ class ExperimentManager:
             window_size = len(few_shots_prompts)
         return [TEXT_BETWEEN_SHOTS.join(few_shots_prompts[i: i + window_size]) for i in
                 range(0, len(few_shots_prompts), window_size)]
+}
